@@ -80,6 +80,26 @@ ipcMain.handle('set-folder-visibility', (event, folderPath, visible) => {
   return excludedFolderPaths;
 });
 
+ipcMain.handle('clear-thumbnail-cache', async () => {
+  try {
+    const thumbnailsDir = path.join(app.getPath('userData'), 'lr-thumbnails');
+    if (!fs.existsSync(thumbnailsDir)) return 0;
+    
+    const files = fs.readdirSync(thumbnailsDir);
+    let count = 0;
+    for (const file of files) {
+      if (file.endsWith('.jpg')) {
+        fs.unlinkSync(path.join(thumbnailsDir, file));
+        count++;
+      }
+    }
+    return count;
+  } catch (err) {
+    console.error('Failed to clear cache:', err);
+    return 0;
+  }
+});
+
 ipcMain.handle('select-lrcat-file', async () => {
   const { canceled, filePaths } = await dialog.showOpenDialog({
     properties: ['openFile'],

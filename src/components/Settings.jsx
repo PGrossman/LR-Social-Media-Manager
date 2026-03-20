@@ -130,8 +130,19 @@ export default function Settings() {
            </div>
         </div>
 
-        {/* Save Button */}
-        <div className="pt-6 flex justify-end">
+        {/* Save & Maintenance Buttons */}
+        <div className="pt-6 flex justify-between items-center border-t border-gray-100 dark:border-gray-700/50 mt-4">
+           <button
+             onClick={async () => {
+               const count = await window.electronAPI.clearThumbnailCache();
+               alert(`Cleared ${count} cached thumbnails.`);
+             }}
+             className="flex items-center space-x-2 px-4 py-2 text-sm font-medium text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/20 rounded-lg transition-colors border border-rose-200 dark:border-rose-900/30"
+           >
+             <RefreshCw size={16} />
+             <span>Clear Cache</span>
+           </button>
+
            <button
              onClick={handleSave}
              disabled={saving}

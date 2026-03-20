@@ -21,7 +21,14 @@ function ThumbnailImage({ photo }) {
                     if (ext.endsWith('.jpg') || ext.endsWith('.jpeg') || ext.endsWith('.png') || ext.endsWith('.webp')) {
                         setImgSrc(`local-img://${photo.full_file_path}`);
                     } else {
-                        if (result?.reason) console.log(`[Thumbnail] ${photo.file_name} failed:`, result.reason);
+                        if (!result?.ok) {
+                            console.warn('[LR-PREVIEW] thumbnail unavailable', {
+                                imageId: photo.image_id,
+                                fileName: photo.file_name,
+                                reason: result?.reason,
+                                debug: result?.debug
+                            });
+                        }
                     }
                 }
                 setLoading(false);
