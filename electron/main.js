@@ -145,9 +145,22 @@ ipcMain.handle('get-thumbnail', async (event, imageId) => {
         for (const filename of possibleFilenames) {
             const lrPreviewPath = path.join(previewBaseDir, filename);
             if (fs.existsSync(lrPreviewPath)) {
-                // Copy the .lrprev to our cache but save it as a .jpg so the browser can read it
-                fs.copyFileSync(lrPreviewPath, cachedPath);
-                return cachedPath;
+                
+                // Read the proprietary Adobe preview file into memory
+                const fileData = fs.readFileSync(lrPreviewPath);
+                
+                // Find the exact byte sequence where the real JPEG starts (FF D8 FF)
+                const jpegStart = fileData.indexOf(Buffer.from([0xFF, 0xD8, 0xFF]));
+                
+                if (jpegStart !== -1) {
+                    // Slice off Adobe's header and save only the pure JPEG data
+                    fs.writeFileSync(cachedPath, fileData.slice(jpegStart));
+                    return cachedPath;
+                } else if (filename.endsWith('.jpg')) {
+                    // Fallback: If it's already a standard jpg and has no Adobe header
+                    fs.copyFileSync(lrPreviewPath, cachedPath);
+                    return cachedPath;
+                }
             }
         }
 
@@ -214,6 +227,12 @@ ipcMain.handle('get-catalog', async (event, excludedFolderPaths = [], selectedFo
             }
         }
 
+        let limitClause = '';
+        if (selectedFolderIds === null) {
+            // Cap at 300 to prevent React VDOM from locking up on the global "Recent" load
+            limitClause = 'LIMIT 300';
+        }
+
         const query = `
             SELECT 
                 img.id_local AS image_id,
@@ -227,7 +246,7 @@ ipcMain.handle('get-catalog', async (event, excludedFolderPaths = [], selectedFo
             JOIN AgLibraryRootFolder root ON folder.rootFolder = root.id_local
             ${whereClause}
             ORDER BY img.captureTime DESC
-            LIMIT 100;
+            ${limitClause}
         `;
 
         const params = excludedFolderPaths.map(p => p + '%');
