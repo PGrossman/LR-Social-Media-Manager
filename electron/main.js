@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, protocol } from 'electron';
+import { app, BrowserWindow, ipcMain, protocol, dialog } from 'electron';
 import Database from 'better-sqlite3';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -56,7 +56,7 @@ app.whenReady().then(() => {
 });
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit();
+  app.quit();
 });
 
 // IPC Handlers
@@ -73,6 +73,20 @@ ipcMain.handle('hide-folder', (event, folderId) => {
     store.set('excludedFolders', [...excludedFolders, folderId]);
   }
   return store.get('excludedFolders');
+});
+
+ipcMain.handle('select-lrcat-file', async () => {
+  const { canceled, filePaths } = await dialog.showOpenDialog({
+    properties: ['openFile'],
+    filters: [
+      { name: 'Lightroom Catalogs', extensions: ['lrcat'] }
+    ]
+  });
+  if (canceled) {
+    return null;
+  } else {
+    return filePaths[0];
+  }
 });
 
 ipcMain.handle('get-folders', async (event, excludedFolders = []) => {

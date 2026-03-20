@@ -41,6 +41,13 @@ export default function Settings() {
      setSettings(savedSettings);
   };
 
+  const handleBrowse = async () => {
+    const filePath = await window.electronAPI.selectLrcatFile();
+    if (filePath) {
+      handleChange('lrDbPath', filePath);
+    }
+  };
+
   return (
     <div className="max-w-2xl mx-auto p-8 pb-20 fade-in">
       <h2 className="text-3xl font-extrabold mb-8 tracking-tight text-gray-900 dark:text-gray-50">Application Settings</h2>
@@ -53,13 +60,21 @@ export default function Settings() {
             <Database size={18} className="text-blue-500" />
             <span>Lightroom Catalog Path (.lrcat)</span>
           </label>
-          <input
-            type="text"
-            value={settings.lrDbPath}
-            onChange={(e) => handleChange('lrDbPath', e.target.value)}
-            placeholder="/Users/name/Pictures/Lightroom/Lightroom Catalog.lrcat"
-            className="w-full px-4 py-3 border border-gray-200 dark:border-gray-700 rounded-xl bg-gray-50 dark:bg-gray-900/50 focus:bg-white dark:focus:bg-gray-800 focus:ring-2 focus:ring-blue-500 outline-none transition-all duration-200"
-          />
+          <div className="flex gap-2 items-center">
+            <input
+              type="text"
+              value={settings.lrDbPath}
+              onChange={(e) => handleChange('lrDbPath', e.target.value)}
+              placeholder="/Users/name/Pictures/Lightroom/Lightroom Catalog.lrcat"
+              className="w-full px-4 py-3 border border-gray-200 dark:border-gray-700 rounded-xl bg-gray-50 dark:bg-gray-900/50 focus:bg-white dark:focus:bg-gray-800 focus:ring-2 focus:ring-blue-500 outline-none transition-all duration-200"
+            />
+            <button
+              onClick={handleBrowse}
+              className="px-6 py-3 shrink-0 rounded-xl bg-transparent border border-blue-500 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/30 dark:text-blue-400 font-medium transition-colors cursor-pointer"
+            >
+              Browse...
+            </button>
+          </div>
         </div>
 
         {/* Gemini API Key */}
