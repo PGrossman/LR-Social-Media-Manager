@@ -40,8 +40,11 @@ function createWindow() {
 
 app.whenReady().then(() => {
   protocol.handle('local-img', (request) => {
-    const url = request.url.replace('local-img://', '');
-    return net.fetch('file://' + decodeURIComponent(url));
+    // Only strip our exact explicit custom protocol flag
+    if (request.url.startsWith('local-img://')) {
+        const url = request.url.replace('local-img://', '');
+        return net.fetch('file://' + decodeURIComponent(url));
+    }
   });
 
   createWindow();
@@ -90,9 +93,9 @@ ipcMain.handle('select-lrcat-file', async () => {
   }
 });
 
-ipcMain.handle('get-thumbnail', async (event, imageId, uuid) => {
+ipcMain.handle('get-thumbnail', async (event, imageId, _ignoredUuid) => {
     const dbPath = store.get('lrDbPath');
-    if (!dbPath || !uuid) return null;
+    if (!dbPath) return null;
 
     const thumbnailsDir = path.join(app.getPath('userData'), 'lr-thumbnails');
     if (!fs.existsSync(thumbnailsDir)) fs.mkdirSync(thumbnailsDir, { recursive: true });
@@ -102,16 +105,36 @@ ipcMain.handle('get-thumbnail', async (event, imageId, uuid) => {
 
     const catalogDir = path.dirname(dbPath);
     const catalogName = path.basename(dbPath, '.lrcat');
-    
-    const level1 = uuid.charAt(0).toUpperCase();
-    const level2 = uuid.substring(0, 4).toUpperCase();
+    const previewsDbPath = path.join(catalogDir, `${catalogName} Previews.lrdata`, 'previews.db');
+
+    if (!fs.existsSync(previewsDbPath)) return null;
+
+    let actualPreviewUuid = null;
+    try {
+        // We MUST query previews.db. The main catalog's id_global does NOT match the preview UUID.
+        const previewDb = new Database(previewsDbPath, { readonly: true });
+        const row = previewDb.prepare('SELECT uuid FROM ImageCacheEntry WHERE imageId = ?').get(imageId);
+        previewDb.close();
+        
+        if (row && row.uuid) {
+            actualPreviewUuid = row.uuid;
+        }
+    } catch (error) {
+        console.error('Preview DB Read Error for imageId', imageId, ':', error);
+        return null;
+    }
+
+    if (!actualPreviewUuid) return null;
+
+    const level1 = actualPreviewUuid.charAt(0).toUpperCase();
+    const level2 = actualPreviewUuid.substring(0, 4).toUpperCase();
     const previewBaseDir = path.join(catalogDir, `${catalogName} Previews.lrdata`, level1, level2);
     
     const possibleFilenames = [
-        `${uuid}.lrprev`,
-        `${uuid}-preview.lrprev`,
-        `${uuid}.jpg`,
-        `${uuid}-preview.jpg`
+        `${actualPreviewUuid}.lrprev`,
+        `${actualPreviewUuid}-preview.lrprev`,
+        `${actualPreviewUuid}.jpg`,
+        `${actualPreviewUuid}-preview.jpg`
     ];
 
     for (const filename of possibleFilenames) {
@@ -119,6 +142,7 @@ ipcMain.handle('get-thumbnail', async (event, imageId, uuid) => {
         if (fs.existsSync(lrPreviewPath)) {
             try {
                 const fileData = fs.readFileSync(lrPreviewPath);
+                // Strip the proprietary Adobe header to extract the pure JPEG
                 const jpegStart = fileData.indexOf(Buffer.from([0xFF, 0xD8, 0xFF]));
                 
                 if (jpegStart !== -1) {
