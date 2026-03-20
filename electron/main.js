@@ -132,12 +132,23 @@ ipcMain.handle('get-thumbnail', async (event, imageId) => {
         const uuid = row.uuid;
         const level1 = uuid.charAt(0);
         const level2 = uuid.substring(0, 4);
-        const lrPreviewPath = path.join(catalogDir, `${catalogName} Previews.lrdata`, level1, level2, `${uuid}-preview.jpg`);
+        const previewBaseDir = path.join(catalogDir, `${catalogName} Previews.lrdata`, level1, level2);
+        
+        // 5. Hunt for the file using all of Lightroom's known naming conventions
+        const possibleFilenames = [
+            `${uuid}.lrprev`,
+            `${uuid}-preview.lrprev`,
+            `${uuid}.jpg`,
+            `${uuid}-preview.jpg`
+        ];
 
-        // 5. Copy the preview to our permanent cache and return it
-        if (fs.existsSync(lrPreviewPath)) {
-            fs.copyFileSync(lrPreviewPath, cachedPath);
-            return cachedPath;
+        for (const filename of possibleFilenames) {
+            const lrPreviewPath = path.join(previewBaseDir, filename);
+            if (fs.existsSync(lrPreviewPath)) {
+                // Copy the .lrprev to our cache but save it as a .jpg so the browser can read it
+                fs.copyFileSync(lrPreviewPath, cachedPath);
+                return cachedPath;
+            }
         }
 
         return null;
