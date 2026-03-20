@@ -40,11 +40,35 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
-  protocol.handle('local-img', (request) => {
-    // Only strip our exact explicit custom protocol flag
-    if (request.url.startsWith('local-img://')) {
-        const url = request.url.replace('local-img://', '');
-        return net.fetch('file://' + decodeURIComponent(url));
+  protocol.handle('lr-media', async (request) => {
+    if (request.url.startsWith('lr-media://')) {
+        const filePath = decodeURIComponent(request.url.replace('lr-media://', ''));
+        try {
+            const buffer = fs.readFileSync(filePath);
+            let finalBuffer = buffer;
+
+            // Extract pure JPEG from Adobe's wrapper (SOI to EOI)
+            const soi = Buffer.from([0xFF, 0xD8]);
+            const eoi = Buffer.from([0xFF, 0xD9]);
+            
+            const soiIndex = buffer.indexOf(soi);
+            if (soiIndex !== -1) {
+                const eoiIndex = buffer.indexOf(eoi, soiIndex);
+                if (eoiIndex !== -1) {
+                    // Include the 2 bytes of the EOI marker
+                    finalBuffer = buffer.slice(soiIndex, eoiIndex + 2);
+                } else {
+                    finalBuffer = buffer.slice(soiIndex);
+                }
+            }
+
+            return new Response(finalBuffer, {
+                headers: { 'Content-Type': 'image/jpeg' }
+            });
+        } catch (e) {
+            console.error('[PROTOCOL] Failed to read in-memory:', filePath);
+            return new Response(null, { status: 404 });
+        }
     }
   });
 
@@ -114,33 +138,76 @@ ipcMain.handle('select-lrcat-file', async () => {
   }
 });
 
-ipcMain.handle('get-thumbnail', async (event, imageId) => {
+ipcMain.handle('get-thumbnail', async (event, imageId, size = 256) => {
     try {
-        const settings = store.store;
-        const catalogPath = settings.lrDbPath;
-        if (!catalogPath) return { ok: false, cachedPath: null, sourceType: 'none', reason: 'No catalog configured' };
+        const dbPath = store.get('lrDbPath');
+        if (!dbPath) return { ok: false, sourcePath: null, reason: 'No DB Path' };
 
-        const catalogDir = path.dirname(catalogPath);
-        const catalogName = path.basename(catalogPath, '.lrcat');
+        const catalogDir = path.dirname(dbPath);
+        const catalogName = path.basename(dbPath, '.lrcat');
         const previewsRootPath = path.join(catalogDir, `${catalogName} Previews.lrdata`);
-        const thumbnailsDir = path.join(app.getPath('userData'), 'lr-thumbnails');
-        if (!fs.existsSync(thumbnailsDir)) fs.mkdirSync(thumbnailsDir, { recursive: true });
 
-        const result = await resolveLightroomThumbnail({
+        return await resolveLightroomThumbnail({
             imageId,
-            catalogPath,
+            catalogPath: dbPath,
             previewsRootPath,
-            thumbnailsDir
+            minSize: size
         });
-        return result;
     } catch (err) {
-        console.error('[LR-PREVIEW] fatal get-thumbnail error', err);
+        return { ok: false, sourcePath: null, reason: err.message };
+    }
+});
+
+ipcMain.handle('get-photo-metadata', async (event, imageId) => {
+    const dbPath = store.get('lrDbPath');
+    if (!dbPath) return null;
+
+    try {
+        const db = new Database(dbPath, { readonly: true });
+        
+        // 1. Get Caption from AgLibraryIPTC
+        const iptcRow = db.prepare('SELECT caption FROM AgLibraryIPTC WHERE image = ?').get(imageId) || {};
+        
+        // 2. Get Location via AgHarvestedIptcMetadata + interned value tables
+        const locationRow = db.prepare(`
+            SELECT 
+                loc.value AS location,
+                city.value AS city,
+                st.value AS state,
+                country.value AS country
+            FROM AgHarvestedIptcMetadata him
+            LEFT JOIN AgInternedIptcLocation loc ON him.locationRef = loc.id_local
+            LEFT JOIN AgInternedIptcCity city ON him.cityRef = city.id_local
+            LEFT JOIN AgInternedIptcState st ON him.stateRef = st.id_local
+            LEFT JOIN AgInternedIptcCountry country ON him.countryRef = country.id_local
+            WHERE him.image = ?
+        `).get(imageId) || {};
+
+        // 3. Get EXIF (GPS)
+        const exif = db.prepare('SELECT gpsLatitude, gpsLongitude FROM AgHarvestedExifMetadata WHERE image = ?').get(imageId) || {};
+        
+        // 4. Get Keywords
+        const keywords = db.prepare(`
+            SELECT kw.name 
+            FROM AgLibraryKeyword kw
+            JOIN AgLibraryKeywordImage ki ON kw.id_local = ki.tag
+            WHERE ki.image = ?
+        `).all(imageId).map(k => k.name);
+
+        db.close();
+
         return {
-            ok: false,
-            cachedPath: null,
-            sourceType: 'none',
-            reason: err?.message || 'unknown get-thumbnail error'
+            caption: iptcRow.caption || '',
+            location: locationRow.location || '',
+            city: locationRow.city || '',
+            state: locationRow.state || '',
+            country: locationRow.country || '',
+            gps: (exif.gpsLatitude && exif.gpsLongitude) ? `${exif.gpsLatitude.toFixed(6)}, ${exif.gpsLongitude.toFixed(6)}` : '',
+            keywords: keywords
         };
+    } catch (error) {
+        console.error("Metadata Error:", error);
+        return null;
     }
 });
 

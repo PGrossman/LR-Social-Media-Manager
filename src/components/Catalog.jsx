@@ -2,10 +2,13 @@ import { useState, useEffect, useCallback } from 'react';
 import { EyeOff, RefreshCw, AlertCircle, Image as ImageIcon, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import FolderTree from './FolderTree';
 import { buildFolderTree } from '../utils/treeBuilder';
+import InfoPanel from './InfoPanel';
 
-function ThumbnailImage({ photo }) {
+function ThumbnailImage({ photo, onLoaded }) {
     const [imgSrc, setImgSrc] = useState(null);
     const [loading, setLoading] = useState(true);
+    const [errorReason, setErrorReason] = useState(null);
+    const [orientation, setOrientation] = useState(null);
 
     useEffect(() => {
         let isMounted = true;
@@ -14,30 +17,41 @@ function ThumbnailImage({ photo }) {
             const result = await window.electronAPI.getThumbnail(photo.image_id);
             
             if (isMounted) {
-                if (result?.ok && result.cachedPath) {
-                    setImgSrc(`local-img://${result.cachedPath}`);
-                } else {
-                    const ext = photo.file_name.toLowerCase();
-                    if (ext.endsWith('.jpg') || ext.endsWith('.jpeg') || ext.endsWith('.png') || ext.endsWith('.webp')) {
-                        setImgSrc(`local-img://${photo.full_file_path}`);
+                if (result?.ok && result.sourcePath) {
+                    setOrientation(result.orientation);
+                    if (result.sourceType === 'base64') {
+                        setImgSrc(result.sourcePath);
                     } else {
-                        if (!result?.ok) {
-                            console.warn('[LR-PREVIEW] thumbnail unavailable', {
-                                imageId: photo.image_id,
-                                fileName: photo.file_name,
-                                reason: result?.reason,
-                                debug: result?.debug
-                            });
-                        }
+                        setImgSrc(`lr-media://${result.sourcePath}`);
+                    }
+                } else {
+                    const extMatch = photo.file_name.match(/\.([^.]+)$/);
+                    const ext = extMatch ? extMatch[1].toLowerCase() : '';
+                    const renderableExts = ['jpg', 'jpeg', 'png', 'webp'];
+                    
+                    if (renderableExts.includes(ext)) {
+                        setImgSrc(`lr-media://${photo.full_file_path}`);
+                    } else {
+                        setErrorReason(result?.reason || 'Format not renderable natively');
                     }
                 }
                 setLoading(false);
+                if (onLoaded) onLoaded();
             }
         };
         
         fetchThumb();
         return () => { isMounted = false; };
     }, [photo.image_id, photo.full_file_path, photo.file_name]);
+
+    const getRotationStyle = (ori) => {
+        if (!ori) return {};
+        const strOri = String(ori).toUpperCase();
+        if (strOri === '6' || strOri === 'BC') return { transform: 'rotate(90deg)' };
+        if (strOri === '3' || strOri === 'CD') return { transform: 'rotate(180deg)' };
+        if (strOri === '8' || strOri === 'DA') return { transform: 'rotate(-90deg)' };
+        return {};
+    };
 
     if (loading) {
         return (
@@ -49,8 +63,8 @@ function ThumbnailImage({ photo }) {
 
     if (!imgSrc) {
         return (
-            <div className="w-full h-full bg-gray-100 dark:bg-gray-800 flex flex-col items-center justify-center text-gray-400">
-                <ImageIcon size={24} className="mb-2 opacity-30" />
+            <div className="w-full h-full bg-gray-100 dark:bg-gray-800 flex flex-col items-center justify-center text-gray-400 p-2 text-center" title={errorReason}>
+                <EyeOff size={24} className="mb-2 opacity-30" />
                 <span className="text-[10px] uppercase tracking-wider font-semibold">No Preview</span>
             </div>
         );
@@ -60,6 +74,7 @@ function ThumbnailImage({ photo }) {
         <img 
             src={imgSrc} 
             alt={photo.file_name} 
+            style={getRotationStyle(orientation)}
             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
             loading="lazy" 
         />
@@ -75,6 +90,48 @@ export default function Catalog() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [sidebarOpen, setSidebarOpen] = useState(true);
+    const [thumbsLoaded, setThumbsLoaded] = useState(0);
+    const [selectedPhoto, setSelectedPhoto] = useState(null);
+
+    // --- RESIZE LOGIC ---
+    const [sidebarWidth, setSidebarWidth] = useState(288);
+    const [isResizing, setIsResizing] = useState(false);
+
+    const startResizing = useCallback((e) => {
+        setIsResizing(true);
+        e.preventDefault();
+    }, []);
+
+    const stopResizing = useCallback(() => {
+        setIsResizing(false);
+    }, []);
+
+    const resize = useCallback((e) => {
+        if (isResizing) {
+            const newWidth = Math.max(200, Math.min(e.clientX, 600));
+            setSidebarWidth(newWidth);
+        }
+    }, [isResizing]);
+
+    useEffect(() => {
+        if (isResizing) {
+            window.addEventListener('mousemove', resize);
+            window.addEventListener('mouseup', stopResizing);
+        }
+        return () => {
+            window.removeEventListener('mousemove', resize);
+            window.removeEventListener('mouseup', stopResizing);
+        };
+    }, [isResizing, resize, stopResizing]);
+    // --- END RESIZE LOGIC ---
+
+    useEffect(() => {
+        setThumbsLoaded(0);
+    }, [photos]);
+
+    const handleThumbLoaded = useCallback(() => {
+        setThumbsLoaded(prev => prev + 1);
+    }, []);
 
     const loadData = useCallback(async () => {
         setLoading(true);
@@ -92,7 +149,6 @@ export default function Catalog() {
 
            const excluded = currentSettings.excludedFolderPaths || [];
            
-           // Fetch both photos and folder tree in parallel
            const [photosData, foldersData] = await Promise.all([
                window.electronAPI.getCatalog(excluded, selectedFolderIds),
                window.electronAPI.getFolderTree(excluded)
@@ -113,7 +169,7 @@ export default function Catalog() {
     }, [loadData]);
 
     const handleHideFolder = async (folderPath) => {
-        if (!folderPath) return; // Ignore if missing path
+        if (!folderPath) return;
         await window.electronAPI.setFolderVisibility(folderPath, false);
         loadData();
     };
@@ -151,8 +207,18 @@ export default function Catalog() {
         <div className="flex h-full w-full overflow-hidden fade-in">
            {/* Sidebar - Collapsible Folder Tree */}
            <div 
-               className={`transition-all duration-300 ease-in-out border-r border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 flex flex-col ${sidebarOpen ? 'w-72 shrink-0 opacity-100' : 'w-0 opacity-0 overflow-hidden'}`}
+               className={`relative border-r border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 flex flex-col shrink-0 ${isResizing ? '' : 'transition-all duration-300 ease-in-out'} ${sidebarOpen ? 'opacity-100' : 'w-0 opacity-0 overflow-hidden'}`}
+               style={{ width: sidebarOpen ? sidebarWidth : 0 }}
            >
+               {/* Drag Handle */}
+               {sidebarOpen && (
+                   <div
+                       onMouseDown={startResizing}
+                       className="absolute top-0 right-0 bottom-0 w-1.5 cursor-col-resize z-50 hover:bg-blue-500/50 active:bg-blue-500/80 transition-colors"
+                       style={{ transform: 'translateX(50%)' }}
+                   />
+               )}
+
                <div className="p-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between shrink-0 h-[73px]">
                    <h3 className="font-semibold text-gray-700 dark:text-gray-300">Folders</h3>
                    {selectedFolderPath && (
@@ -181,10 +247,10 @@ export default function Catalog() {
                </div>
            </div>
 
-           {/* Main Content - Grid */}
+           {/* Main Content */}
            <div className="flex-1 flex flex-col h-full overflow-hidden bg-white dark:bg-gray-900">
                {/* Header */}
-               <div className="p-4 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between shrink-0 h-[73px]">
+               <div className="p-4 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between shrink-0 h-[73px] relative">
                    <div className="flex items-center space-x-4">
                        <button 
                            onClick={() => setSidebarOpen(!sidebarOpen)}
@@ -197,7 +263,14 @@ export default function Catalog() {
                          <h2 className="text-xl font-bold tracking-tight text-gray-900 dark:text-white">
                              {selectedFolderPath ? 'Folder Images' : 'Recent Images'}
                          </h2>
-                         <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Showing {photos.length} photos</p>
+                         <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                           Showing {photos.length} photos
+                           {photos.length > 0 && thumbsLoaded < photos.length && (
+                             <span className="ml-2 text-blue-500 dark:text-blue-400">
+                               — Loading {thumbsLoaded}/{photos.length}
+                             </span>
+                           )}
+                         </p>
                        </div>
                    </div>
                    <button 
@@ -207,6 +280,14 @@ export default function Catalog() {
                        <RefreshCw size={14} className={`group-hover:rotate-180 transition-transform duration-500 ${loading ? 'animate-spin' : ''}`} />
                        <span>Reload</span>
                    </button>
+                   {photos.length > 0 && thumbsLoaded < photos.length && (
+                     <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-gray-200 dark:bg-gray-700">
+                       <div 
+                         className="h-full bg-blue-500 transition-all duration-300 ease-out"
+                         style={{ width: `${(thumbsLoaded / photos.length) * 100}%` }}
+                       />
+                     </div>
+                   )}
                </div>
                
                {/* Grid */}
@@ -235,9 +316,9 @@ export default function Catalog() {
                           style={{ display: 'grid', gridTemplateColumns: `repeat(auto-fill, minmax(${thumbSize}px, 1fr))`, gap: '1.5rem' }}
                        >
                           {photos.map(photo => (
-                              <div key={photo.image_id} className="group relative bg-white dark:bg-gray-800 rounded-xl overflow-hidden shadow-sm hover:shadow-xl transition-all duration-300 border border-transparent dark:border-gray-700 hover:border-blue-200 dark:hover:border-blue-900/50 flex flex-col">
+                              <div key={photo.image_id} onClick={() => setSelectedPhoto(photo)} className="group relative bg-white dark:bg-gray-800 rounded-xl overflow-hidden shadow-sm hover:shadow-xl transition-all duration-300 border border-transparent dark:border-gray-700 hover:border-blue-200 dark:hover:border-blue-900/50 flex flex-col cursor-pointer">
                                   <div className="aspect-[4/3] bg-gray-100 dark:bg-gray-900 relative overflow-hidden">
-                                     <ThumbnailImage photo={photo} />
+                                     <ThumbnailImage photo={photo} onLoaded={handleThumbLoaded} />
                                   </div>
                                   <div className="p-4 flex flex-col border-t border-gray-100 dark:border-gray-700/50">
                                       <p className="text-sm font-semibold truncate text-gray-800 dark:text-gray-200" title={photo.file_name}>
@@ -253,6 +334,8 @@ export default function Catalog() {
                    )}
                </div>
            </div>
+           {/* Right Sidebar - Info Panel */}
+           <InfoPanel photo={selectedPhoto} />
         </div>
     );
 }
