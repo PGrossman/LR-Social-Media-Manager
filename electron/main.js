@@ -13,7 +13,8 @@ const store = new Store({
     geminiApiToken: '',
     theme: 'dark',
     thumbnailSize: 200,
-    excludedFolders: []
+    excludedFolders: [],
+    excludedFolderPaths: []
   }
 });
 
@@ -67,12 +68,17 @@ ipcMain.handle('save-settings', (event, newSettings) => {
   return store.store;
 });
 
-ipcMain.handle('hide-folder', (event, folderId) => {
-  const excludedFolders = store.get('excludedFolders') || [];
-  if (!excludedFolders.includes(folderId)) {
-    store.set('excludedFolders', [...excludedFolders, folderId]);
+ipcMain.handle('set-folder-visibility', (event, folderPath, visible) => {
+  let excludedFolderPaths = store.get('excludedFolderPaths') || [];
+  if (!visible) {
+    if (!excludedFolderPaths.includes(folderPath)) {
+      excludedFolderPaths.push(folderPath);
+    }
+  } else {
+    excludedFolderPaths = excludedFolderPaths.filter(p => p !== folderPath);
   }
-  return store.get('excludedFolders');
+  store.set('excludedFolderPaths', excludedFolderPaths);
+  return excludedFolderPaths;
 });
 
 ipcMain.handle('select-lrcat-file', async () => {
@@ -89,15 +95,18 @@ ipcMain.handle('select-lrcat-file', async () => {
   }
 });
 
-ipcMain.handle('get-folders', async (event, excludedFolders = []) => {
+ipcMain.handle('get-folders', async (event, excludedFolderPaths = []) => {
     const dbPath = store.get('lrDbPath'); 
     if (!dbPath) return [];
 
     try {
         const db = new Database(dbPath, { readonly: true });
         
-        const placeholders = excludedFolders.map(() => '?').join(',');
-        const whereClause = excludedFolders.length > 0 ? `WHERE id_local NOT IN (${placeholders})` : '';
+        let whereClause = '';
+        if (excludedFolderPaths.length > 0) {
+            const conditions = excludedFolderPaths.map(() => `pathFromRoot NOT LIKE ?`).join(' AND ');
+            whereClause = `WHERE ` + conditions;
+        }
 
         const query = `
             SELECT pathFromRoot, id_local 
@@ -106,8 +115,9 @@ ipcMain.handle('get-folders', async (event, excludedFolders = []) => {
             ORDER BY pathFromRoot ASC;
         `;
 
-        const rows = excludedFolders.length > 0 
-            ? db.prepare(query).all(...excludedFolders) 
+        const params = excludedFolderPaths.map(p => p + '%');
+        const rows = excludedFolderPaths.length > 0 
+            ? db.prepare(query).all(...params) 
             : db.prepare(query).all();
 
         db.close();
@@ -118,18 +128,27 @@ ipcMain.handle('get-folders', async (event, excludedFolders = []) => {
     }
 });
 
-ipcMain.handle('get-catalog', async (event, excludedFolders = [], selectedFolderId = null) => {
+ipcMain.handle('get-catalog', async (event, excludedFolderPaths = [], selectedFolderIds = null) => {
     const dbPath = store.get('lrDbPath'); 
     if (!dbPath) return [];
 
     try {
         const db = new Database(dbPath, { readonly: true });
         
-        const placeholders = excludedFolders.map(() => '?').join(',');
-        let whereClause = excludedFolders.length > 0 ? `WHERE folder.id_local NOT IN (${placeholders})` : 'WHERE 1=1';
+        let whereClause = 'WHERE 1=1';
+        if (excludedFolderPaths.length > 0) {
+            const conditions = excludedFolderPaths.map(() => `folder.pathFromRoot NOT LIKE ?`).join(' AND ');
+            whereClause += ` AND ` + conditions;
+        }
         
-        if (selectedFolderId) {
-            whereClause += ` AND folder.id_local = ?`;
+        if (selectedFolderIds !== null) {
+            if (selectedFolderIds.length > 0) {
+                const placeholders = selectedFolderIds.map(() => '?').join(',');
+                whereClause += ` AND folder.id_local IN (${placeholders})`;
+            } else {
+                db.close();
+                return []; // completely empty mid-level folder selection
+            }
         }
 
         const query = `
@@ -148,8 +167,10 @@ ipcMain.handle('get-catalog', async (event, excludedFolders = [], selectedFolder
             LIMIT 100;
         `;
 
-        const params = [...excludedFolders];
-        if (selectedFolderId) params.push(selectedFolderId);
+        const params = excludedFolderPaths.map(p => p + '%');
+        if (selectedFolderIds !== null && selectedFolderIds.length > 0) {
+            params.push(...selectedFolderIds);
+        }
 
         const rows = db.prepare(query).all(...params);
 

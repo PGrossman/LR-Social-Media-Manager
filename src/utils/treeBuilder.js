@@ -22,9 +22,12 @@ export function buildFolderTree(foldersArray) {
             let childNode = currentNode.children.find(c => c.name === part);
             
             if (!childNode) {
+                // Reconstruct the accurate pathFromRoot for this depth
+                const reconstructedPath = parts.slice(0, i + 1).join('/') + '/';
                 childNode = {
                     name: part,
                     children: [],
+                    pathFromRoot: isLast ? folder.pathFromRoot : reconstructedPath,
                     // Only assign id if it's the exact folder path
                     id: isLast ? folder.id_local : null 
                 };

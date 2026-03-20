@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Save, FolderX, Moon, Sun, Key, Database } from 'lucide-react';
+import { Save, FolderX, Moon, Sun, Key, Database, RefreshCw, EyeOff } from 'lucide-react';
 
 export default function Settings() {
   const [settings, setSettings] = useState({
@@ -7,7 +7,7 @@ export default function Settings() {
     geminiApiToken: '',
     theme: 'dark',
     thumbnailSize: 200,
-    excludedFolders: []
+    excludedFolderPaths: []
   });
   const [saving, setSaving] = useState(false);
 
@@ -34,11 +34,10 @@ export default function Settings() {
     setTimeout(() => setSaving(false), 500);
   };
 
-  const removeExcludedFolder = async (folderId) => {
-     const updatedExcluded = settings.excludedFolders.filter(id => id !== folderId);
-     const newSettings = { ...settings, excludedFolders: updatedExcluded };
-     const savedSettings = await window.electronAPI.saveSettings(newSettings);
-     setSettings(savedSettings);
+  const removeExcludedFolder = async (folderPath) => {
+     await window.electronAPI.setFolderVisibility(folderPath, true);
+     const updatedSettings = await window.electronAPI.getSettings();
+     setSettings(updatedSettings);
   };
 
   const handleBrowse = async () => {
@@ -144,39 +143,34 @@ export default function Settings() {
         </div>
       </div>
 
-      {/* Excluded Folders */}
       <h3 className="text-xl font-bold mt-12 mb-6 flex items-center space-x-3 text-gray-900 dark:text-gray-100">
         <div className="p-2 rounded-lg bg-rose-100 dark:bg-rose-900/30 text-rose-500">
            <FolderX size={20} />
         </div>
         <span>Excluded Folders</span>
       </h3>
-      <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700/50 overflow-hidden text-sm transition-all duration-200">
-        {settings.excludedFolders.length === 0 ? (
-           <div className="flex flex-col items-center justify-center p-10 text-center text-gray-400">
-              <FolderX size={32} className="mb-3 opacity-20" />
-              <p>No folders currently excluded from the catalog.</p>
-           </div>
-        ) : (
-           <ul className="divide-y divide-gray-100 dark:divide-gray-700">
-              {settings.excludedFolders.map((folderId, index) => (
-                 <li key={index} className="flex items-center justify-between p-5 hover:bg-gray-50 dark:hover:bg-gray-750/50 transition-colors group">
-                    <div className="flex items-center space-x-3">
-                       <div className="w-8 h-8 rounded bg-gray-100 dark:bg-gray-700 flex items-center justify-center text-xs font-mono text-gray-500 dark:text-gray-400">
-                          #{index + 1}
-                       </div>
-                       <span className="font-mono font-medium text-gray-700 dark:text-gray-300">Folder ID: {folderId}</span>
-                    </div>
-                    <button
-                      onClick={() => removeExcludedFolder(folderId)}
-                      className="px-4 py-2 text-sm font-medium bg-gray-100 dark:bg-gray-700 hover:bg-rose-100 hover:text-rose-700 dark:hover:bg-rose-900/40 dark:hover:text-rose-400 rounded-lg transition-all opacity-80 group-hover:opacity-100"
+
+      <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700/50 overflow-hidden text-sm transition-all duration-200 p-6">
+        <div className="space-y-3">
+           {!settings.excludedFolderPaths || settings.excludedFolderPaths.length === 0 ? (
+              <p className="text-sm text-gray-500 italic bg-gray-50 dark:bg-gray-900/50 rounded-xl px-4 py-3 border border-gray-100 dark:border-gray-800">
+                 No folders are currently hidden. You can hide folders using the context menu in the Catalog tab.
+              </p>
+           ) : (
+              settings.excludedFolderPaths.map(folderPath => (
+                 <div key={folderPath} className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-900/50 border border-gray-200 dark:border-gray-700 rounded-xl">
+                    <span className="text-sm font-mono text-gray-600 dark:text-gray-400 truncate pr-4">/{folderPath}</span>
+                    <button 
+                       onClick={() => removeExcludedFolder(folderPath)}
+                       className="flex items-center space-x-1 text-xs font-semibold px-3 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 shadow-sm rounded-lg text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 transition-colors shrink-0"
                     >
-                      Restore
+                       <RefreshCw size={14} />
+                       <span>Restore</span>
                     </button>
-                 </li>
-              ))}
-           </ul>
-        )}
+                 </div>
+              ))
+           )}
+        </div>
       </div>
 
     </div>

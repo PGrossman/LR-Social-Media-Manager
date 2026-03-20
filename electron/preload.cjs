@@ -1,10 +1,10 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('electronAPI', {
-    getCatalog: (excludedFolders, selectedFolderId) => ipcRenderer.invoke('get-catalog', excludedFolders, selectedFolderId),
+    getCatalog: (excludedFolderPaths, selectedFolderIds) => ipcRenderer.invoke('get-catalog', excludedFolderPaths, selectedFolderIds),
     getSettings: () => ipcRenderer.invoke('get-settings'),
     saveSettings: (settings) => ipcRenderer.invoke('save-settings', settings),
-    hideFolder: (folderId) => ipcRenderer.invoke('hide-folder', folderId),
-    getFolderTree: (excludedFolders) => ipcRenderer.invoke('get-folders', excludedFolders),
+    setFolderVisibility: (folderPath, visible) => ipcRenderer.invoke('set-folder-visibility', folderPath, visible),
+    getFolderTree: (excludedFolderPaths) => ipcRenderer.invoke('get-folders', excludedFolderPaths),
     selectLrcatFile: () => ipcRenderer.invoke('select-lrcat-file')
 });

@@ -6,7 +6,8 @@ import { buildFolderTree } from '../utils/treeBuilder';
 export default function Catalog() {
     const [photos, setPhotos] = useState([]);
     const [folderTree, setFolderTree] = useState([]);
-    const [selectedFolderId, setSelectedFolderId] = useState(null);
+    const [selectedFolderIds, setSelectedFolderIds] = useState(null);
+    const [selectedFolderPath, setSelectedFolderPath] = useState(null);
     const [settings, setSettings] = useState(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
@@ -26,11 +27,11 @@ export default function Catalog() {
                return;
            }
 
-           const excluded = currentSettings.excludedFolders || [];
+           const excluded = currentSettings.excludedFolderPaths || [];
            
            // Fetch both photos and folder tree in parallel
            const [photosData, foldersData] = await Promise.all([
-               window.electronAPI.getCatalog(excluded, selectedFolderId),
+               window.electronAPI.getCatalog(excluded, selectedFolderIds),
                window.electronAPI.getFolderTree(excluded)
            ]);
 
@@ -42,15 +43,33 @@ export default function Catalog() {
            console.error(err);
         }
         setLoading(false);
-    }, [selectedFolderId]);
+    }, [selectedFolderIds]);
 
     useEffect(() => {
         loadData();
     }, [loadData]);
 
-    const handleHideFolder = async (folderId) => {
-        await window.electronAPI.hideFolder(folderId);
+    const handleHideFolder = async (folderPath) => {
+        if (!folderPath) return; // Ignore if missing path
+        await window.electronAPI.setFolderVisibility(folderPath, false);
         loadData();
+    };
+
+    const extractIds = (node) => {
+        let ids = [];
+        if (node.id !== null) ids.push(node.id);
+        if (node.children) {
+            node.children.forEach(child => {
+                ids = ids.concat(extractIds(child));
+            });
+        }
+        return ids;
+    };
+
+    const handleSelectFolder = (node) => {
+        setSelectedFolderPath(node.pathFromRoot);
+        const ids = extractIds(node);
+        setSelectedFolderIds(ids);
     };
 
     if (error) {
@@ -73,9 +92,12 @@ export default function Catalog() {
            >
                <div className="p-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between shrink-0 h-[73px]">
                    <h3 className="font-semibold text-gray-700 dark:text-gray-300">Folders</h3>
-                   {selectedFolderId && (
+                   {selectedFolderPath && (
                        <button 
-                          onClick={() => setSelectedFolderId(null)}
+                          onClick={() => {
+                              setSelectedFolderPath(null);
+                              setSelectedFolderIds(null);
+                          }}
                           className="text-xs text-blue-500 hover:text-blue-600 dark:text-blue-400"
                        >
                           Clear Selection
@@ -88,8 +110,9 @@ export default function Catalog() {
                    ) : (
                        <FolderTree 
                            data={folderTree} 
-                           onSelectFolder={setSelectedFolderId} 
-                           selectedFolderId={selectedFolderId} 
+                           onSelectFolder={handleSelectFolder} 
+                           selectedFolderPath={selectedFolderPath} 
+                           onHideFolder={handleHideFolder}
                        />
                    )}
                </div>
@@ -109,7 +132,7 @@ export default function Catalog() {
                        </button>
                        <div>
                          <h2 className="text-xl font-bold tracking-tight text-gray-900 dark:text-white">
-                             {selectedFolderId ? 'Folder Images' : 'Recent Images'}
+                             {selectedFolderPath ? 'Folder Images' : 'Recent Images'}
                          </h2>
                          <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Showing {photos.length} photos</p>
                        </div>
@@ -138,7 +161,7 @@ export default function Catalog() {
                          </div>
                          <h3 className="text-xl font-bold mb-2 text-gray-700 dark:text-gray-200">No Photos Found</h3>
                          <p className="text-sm max-w-sm mx-auto leading-relaxed">
-                            {selectedFolderId 
+                            {selectedFolderPath 
                                 ? "There are no images in the selected folder, or they are filtered out."
                                 : "Connect your catalog by defining the valid `.lrcat` path in the Settings tab."
                             }
@@ -157,17 +180,6 @@ export default function Catalog() {
                                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                                          loading="lazy" 
                                      />
-                                     
-                                     {/* Hover Overlay */}
-                                     <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex flex-col justify-end p-4">
-                                        <button 
-                                           onClick={() => handleHideFolder(photo.folder_id)}
-                                           className="flex items-center justify-center space-x-2 bg-rose-500/90 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-rose-600 transition-colors backdrop-blur-sm self-center translate-y-4 group-hover:translate-y-0 duration-300 w-full"
-                                        >
-                                           <EyeOff size={16} />
-                                           <span>Hide Entire Folder</span>
-                                        </button>
-                                     </div>
                                   </div>
                                   <div className="p-4 flex flex-col border-t border-gray-100 dark:border-gray-700/50">
                                       <p className="text-sm font-semibold truncate text-gray-800 dark:text-gray-200" title={photo.file_name}>
