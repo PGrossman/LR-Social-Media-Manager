@@ -92,6 +92,7 @@ export default function Catalog() {
     const [sidebarOpen, setSidebarOpen] = useState(true);
     const [thumbsLoaded, setThumbsLoaded] = useState(0);
     const [selectedPhoto, setSelectedPhoto] = useState(null);
+    const [isRestored, setIsRestored] = useState(false);
 
     // --- RESIZE LOGIC ---
     const [sidebarWidth, setSidebarWidth] = useState(288);
@@ -164,9 +165,37 @@ export default function Catalog() {
         setLoading(false);
     }, [selectedFolderIds]);
 
+    // 1. Initial Mount: Restore saved state from electron-store
     useEffect(() => {
-        loadData();
-    }, [loadData]);
+        let isMounted = true;
+        window.electronAPI.getSettings().then(currentSettings => {
+            if (isMounted) {
+                if (currentSettings.lastSelectedFolderPath !== undefined) setSelectedFolderPath(currentSettings.lastSelectedFolderPath);
+                if (currentSettings.lastSelectedFolderIds !== undefined) setSelectedFolderIds(currentSettings.lastSelectedFolderIds);
+                if (currentSettings.lastSelectedPhoto !== undefined) setSelectedPhoto(currentSettings.lastSelectedPhoto);
+                setIsRestored(true);
+            }
+        });
+        return () => { isMounted = false; };
+    }, []);
+
+    // 2. Fetch Data whenever selection changes (but only AFTER restore is complete)
+    useEffect(() => {
+        if (isRestored) {
+            loadData();
+        }
+    }, [isRestored, loadData]);
+
+    // 3. Auto-save State to disk whenever user clicks a folder or photo
+    useEffect(() => {
+        if (isRestored) {
+            window.electronAPI.saveSettings({
+                lastSelectedFolderPath: selectedFolderPath,
+                lastSelectedFolderIds: selectedFolderIds,
+                lastSelectedPhoto: selectedPhoto
+            });
+        }
+    }, [selectedFolderPath, selectedFolderIds, selectedPhoto, isRestored]);
 
     const handleHideFolder = async (folderPath) => {
         if (!folderPath) return;
@@ -226,6 +255,7 @@ export default function Catalog() {
                           onClick={() => {
                               setSelectedFolderPath(null);
                               setSelectedFolderIds(null);
+                              setSelectedPhoto(null);
                           }}
                           className="text-xs text-blue-500 hover:text-blue-600 dark:text-blue-400"
                        >

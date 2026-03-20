@@ -16,7 +16,10 @@ const store = new Store({
     theme: 'dark',
     thumbnailSize: 200,
     excludedFolders: [],
-    excludedFolderPaths: []
+    excludedFolderPaths: [],
+    lastSelectedFolderPath: null,
+    lastSelectedFolderIds: null,
+    lastSelectedPhoto: null
   }
 });
 
@@ -165,10 +168,33 @@ ipcMain.handle('get-photo-metadata', async (event, imageId) => {
     try {
         const db = new Database(dbPath, { readonly: true });
         
-        // 1. Get Caption from AgLibraryIPTC
+        // XMP helper functions
+        let xmp = '';
+        try {
+            const xmpRow = db.prepare('SELECT xmp FROM Adobe_AdditionalMetadata WHERE image = ?').get(imageId);
+            if (xmpRow && xmpRow.xmp) xmp = xmpRow.xmp;
+        } catch (e) { /* XMP not available */ }
+
+        const getXmpTag = (tag) => {
+            // Match attribute style: tag="value"
+            const attrMatch = xmp.match(new RegExp(`${tag}="([^"]+)"`));
+            if (attrMatch) return attrMatch[1];
+            // Match element style: <tag>value</tag>
+            const elemMatch = xmp.match(new RegExp(`<${tag}>([^<]+)</${tag}>`));
+            if (elemMatch) return elemMatch[1];
+            return '';
+        };
+
+        const getXmpLangTag = (tag) => {
+            // Match: <tag><rdf:Alt><rdf:li xml:lang="...">value</rdf:li></rdf:Alt></tag>
+            const match = xmp.match(new RegExp(`<${tag}>[\\s\\S]*?<rdf:li[^>]*>([^<]+)</rdf:li>`));
+            return match ? match[1] : '';
+        };
+
+        // 1. Get Caption/Description from AgLibraryIPTC (fallback)
         const iptcRow = db.prepare('SELECT caption FROM AgLibraryIPTC WHERE image = ?').get(imageId) || {};
         
-        // 2. Get Location via AgHarvestedIptcMetadata + interned value tables
+        // 2. Get Location via DB JOINs (fallback for when XMP is empty)
         const locationRow = db.prepare(`
             SELECT 
                 loc.value AS location,
@@ -183,8 +209,23 @@ ipcMain.handle('get-photo-metadata', async (event, imageId) => {
             WHERE him.image = ?
         `).get(imageId) || {};
 
-        // 3. Get EXIF (GPS)
-        const exif = db.prepare('SELECT gpsLatitude, gpsLongitude FROM AgHarvestedExifMetadata WHERE image = ?').get(imageId) || {};
+        // 3. Get EXIF (GPS, Camera, Lens, Settings)
+        const exifQuery = `
+            SELECT 
+                e.aperture, 
+                e.shutterSpeed, 
+                e.isoSpeedRating, 
+                e.focalLength,
+                e.gpsLatitude, 
+                e.gpsLongitude,
+                c.value AS cameraModel,
+                l.value AS lens
+            FROM AgHarvestedExifMetadata e
+            LEFT JOIN AgInternedExifCameraModel c ON e.cameraModelRef = c.id_local
+            LEFT JOIN AgInternedExifLens l ON e.lensRef = l.id_local
+            WHERE e.image = ?
+        `;
+        const exif = db.prepare(exifQuery).get(imageId) || {};
         
         // 4. Get Keywords
         const keywords = db.prepare(`
@@ -197,13 +238,21 @@ ipcMain.handle('get-photo-metadata', async (event, imageId) => {
         db.close();
 
         return {
-            caption: iptcRow.caption || '',
-            location: locationRow.location || '',
-            city: locationRow.city || '',
-            state: locationRow.state || '',
-            country: locationRow.country || '',
+            title: getXmpLangTag('dc:title'),
+            caption: getXmpTag('photoshop:Headline'),
+            description: getXmpLangTag('dc:description') || iptcRow.caption || '',
+            location: getXmpTag('Iptc4xmpCore:Location') || locationRow.location || '',
+            city: getXmpTag('photoshop:City') || locationRow.city || '',
+            state: getXmpTag('photoshop:State') || locationRow.state || '',
+            country: getXmpTag('photoshop:Country') || locationRow.country || '',
             gps: (exif.gpsLatitude && exif.gpsLongitude) ? `${exif.gpsLatitude.toFixed(6)}, ${exif.gpsLongitude.toFixed(6)}` : '',
-            keywords: keywords
+            keywords: keywords,
+            camera: exif.cameraModel || '',
+            lens: exif.lens || '',
+            focalLength: exif.focalLength ? `${exif.focalLength}mm` : '',
+            iso: exif.isoSpeedRating ? `ISO ${exif.isoSpeedRating}` : '',
+            aperture: exif.aperture ? `f/${exif.aperture}` : '',
+            shutter: exif.shutterSpeed ? `${exif.shutterSpeed}` : ''
         };
     } catch (error) {
         console.error("Metadata Error:", error);

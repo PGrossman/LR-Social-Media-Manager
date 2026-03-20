@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { MapPin, Tag, AlignLeft, Image as ImageIcon } from 'lucide-react';
+import { MapPin, Tag, AlignLeft, Type, Image as ImageIcon, Camera } from 'lucide-react';
 
 export default function InfoPanel({ photo }) {
     const [meta, setMeta] = useState(null);
@@ -51,7 +51,7 @@ export default function InfoPanel({ photo }) {
     return (
         <div className="flex flex-col h-full overflow-y-auto custom-scrollbar bg-gray-50 dark:bg-gray-800/50 border-l border-gray-200 dark:border-gray-700 w-80 shrink-0">
             {/* High-Res Image Preview */}
-            <div className="w-full bg-gray-100 dark:bg-gray-900 aspect-square flex items-center justify-center overflow-hidden shrink-0 border-b border-gray-200 dark:border-gray-700">
+            <div className="w-full bg-gray-100 dark:bg-gray-900 aspect-square flex items-center justify-center overflow-hidden shrink-0 border-b border-gray-200 dark:border-gray-700 p-4">
                 {loading ? (
                     <div className="animate-pulse w-full h-full bg-gray-200 dark:bg-gray-800" />
                 ) : highResSrc ? (
@@ -70,12 +70,31 @@ export default function InfoPanel({ photo }) {
             {/* Metadata Sections */}
             {meta && (
                 <div className="p-4 space-y-6">
-                    {/* Caption */}
-                    <div>
-                        <div className="flex items-center text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">
-                            <AlignLeft size={12} className="mr-1.5" /> Caption
+                    {/* Title, Caption & Description */}
+                    <div className="space-y-4">
+                        {/* 1. Title */}
+                        <div>
+                            <div className="flex items-center text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">
+                                <Type size={12} className="mr-1.5" /> Title
+                            </div>
+                            <p className="text-sm font-medium text-gray-900 dark:text-gray-100">{meta.title || '--'}</p>
                         </div>
-                        <p className="text-sm text-gray-800 dark:text-gray-200 text-pretty">{meta.caption || '--'}</p>
+                        
+                        {/* 2. Caption (Short) */}
+                        <div>
+                            <div className="flex items-center text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">
+                                <AlignLeft size={12} className="mr-1.5" /> Caption
+                            </div>
+                            <p className="text-sm text-gray-800 dark:text-gray-200 italic">{meta.caption || '--'}</p>
+                        </div>
+
+                        {/* 3. Description (Long) */}
+                        <div>
+                            <div className="flex items-center text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">
+                                <AlignLeft size={12} className="mr-1.5" /> Description
+                            </div>
+                            <p className="text-sm text-gray-700 dark:text-gray-300 text-pretty leading-relaxed">{meta.description || '--'}</p>
+                        </div>
                     </div>
 
                     {/* Keywords */}
@@ -104,6 +123,27 @@ export default function InfoPanel({ photo }) {
                             {meta.country && <p><span className="text-gray-500">Country:</span> {meta.country}</p>}
                             {meta.gps && <p className="font-mono text-xs text-blue-600 dark:text-blue-400 mt-1"><span className="text-gray-500 font-sans">GPS:</span> {meta.gps}</p>}
                             {(!meta.location && !meta.city && !meta.state && !meta.country && !meta.gps) && <span className="text-gray-400">--</span>}
+                        </div>
+                    </div>
+
+                    {/* Camera Settings */}
+                    <div>
+                        <div className="flex items-center text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
+                            <Camera size={12} className="mr-1.5" /> Camera EXIF
+                        </div>
+                        <div className="space-y-1.5 text-sm text-gray-800 dark:text-gray-200">
+                            {meta.camera && <p><span className="text-gray-500">Body:</span> {meta.camera}</p>}
+                            {meta.lens && <p><span className="text-gray-500">Lens:</span> {meta.lens}</p>}
+                            
+                            {/* Group the shooting settings into one line if they exist */}
+                            {(meta.focalLength || meta.aperture || meta.iso) && (
+                                <p className="font-mono text-xs mt-1 text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-gray-900/50 p-2 rounded">
+                                    {meta.focalLength && <span>{meta.focalLength} </span>}
+                                    {meta.aperture && <span>&bull; {meta.aperture} </span>}
+                                    {meta.iso && <span>&bull; {meta.iso}</span>}
+                                </p>
+                            )}
+                            {(!meta.camera && !meta.lens && !meta.focalLength) && <span className="text-gray-400">--</span>}
                         </div>
                     </div>
                 </div>
