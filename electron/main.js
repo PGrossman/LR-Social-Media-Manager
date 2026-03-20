@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain, protocol, dialog } from 'electron';
 import Database from 'better-sqlite3';
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 import Store from 'electron-store';
 
@@ -93,6 +94,57 @@ ipcMain.handle('select-lrcat-file', async () => {
   } else {
     return filePaths[0];
   }
+});
+
+ipcMain.handle('get-thumbnail', async (event, imageId) => {
+    const dbPath = store.get('lrDbPath');
+    if (!dbPath) return null;
+
+    // Ensure our local cache directory exists
+    const thumbnailsDir = path.join(app.getPath('userData'), 'lr-thumbnails');
+    if (!fs.existsSync(thumbnailsDir)) {
+        fs.mkdirSync(thumbnailsDir, { recursive: true });
+    }
+
+    const cachedPath = path.join(thumbnailsDir, `${imageId}.jpg`);
+    
+    // 1. If we already cached it, return it instantly
+    if (fs.existsSync(cachedPath)) {
+        return cachedPath;
+    }
+
+    // 2. Locate Lightroom's previews.db
+    const catalogDir = path.dirname(dbPath);
+    const catalogName = path.basename(dbPath, '.lrcat');
+    const previewsDbPath = path.join(catalogDir, `${catalogName} Previews.lrdata`, 'previews.db');
+
+    if (!fs.existsSync(previewsDbPath)) return null;
+
+    try {
+        // 3. Query previews.db for the image's UUID
+        const previewDb = new Database(previewsDbPath, { readonly: true });
+        const row = previewDb.prepare('SELECT uuid FROM ImageCacheEntry WHERE imageId = ?').get(imageId);
+        previewDb.close();
+
+        if (!row || !row.uuid) return null;
+
+        // 4. Construct Lightroom's nested preview path structure
+        const uuid = row.uuid;
+        const level1 = uuid.charAt(0);
+        const level2 = uuid.substring(0, 4);
+        const lrPreviewPath = path.join(catalogDir, `${catalogName} Previews.lrdata`, level1, level2, `${uuid}-preview.jpg`);
+
+        // 5. Copy the preview to our permanent cache and return it
+        if (fs.existsSync(lrPreviewPath)) {
+            fs.copyFileSync(lrPreviewPath, cachedPath);
+            return cachedPath;
+        }
+
+        return null;
+    } catch (error) {
+        console.error('Preview DB Error:', error);
+        return null;
+    }
 });
 
 ipcMain.handle('get-folders', async (event, excludedFolderPaths = []) => {

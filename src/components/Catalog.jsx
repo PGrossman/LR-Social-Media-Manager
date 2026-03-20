@@ -3,6 +3,59 @@ import { EyeOff, RefreshCw, AlertCircle, Image as ImageIcon, PanelLeftClose, Pan
 import FolderTree from './FolderTree';
 import { buildFolderTree } from '../utils/treeBuilder';
 
+function ThumbnailImage({ photo }) {
+    const [imgSrc, setImgSrc] = useState(null);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        let isMounted = true;
+        
+        const fetchThumb = async () => {
+            const cachedPath = await window.electronAPI.getThumbnail(photo.image_id);
+            
+            if (isMounted) {
+                if (cachedPath) {
+                    setImgSrc(`local-img://${cachedPath}`);
+                } else {
+                    if (photo.file_name.toLowerCase().match(/\.(jpg|jpeg|png)$/)) {
+                        setImgSrc(`local-img://${photo.full_file_path}`);
+                    }
+                }
+                setLoading(false);
+            }
+        };
+        
+        fetchThumb();
+        return () => { isMounted = false; };
+    }, [photo.image_id, photo.full_file_path, photo.file_name]);
+
+    if (loading) {
+        return (
+            <div className="w-full h-full bg-gray-200 dark:bg-gray-800 animate-pulse flex items-center justify-center">
+                <ImageIcon size={24} className="text-gray-400 opacity-50" />
+            </div>
+        );
+    }
+
+    if (!imgSrc) {
+        return (
+            <div className="w-full h-full bg-gray-100 dark:bg-gray-800 flex flex-col items-center justify-center text-gray-400">
+                <ImageIcon size={24} className="mb-2 opacity-30" />
+                <span className="text-[10px] uppercase tracking-wider font-semibold">No Preview</span>
+            </div>
+        );
+    }
+
+    return (
+        <img 
+            src={imgSrc} 
+            alt={photo.file_name} 
+            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+            loading="lazy" 
+        />
+    );
+}
+
 export default function Catalog() {
     const [photos, setPhotos] = useState([]);
     const [folderTree, setFolderTree] = useState([]);
@@ -174,12 +227,7 @@ export default function Catalog() {
                           {photos.map(photo => (
                               <div key={photo.image_id} className="group relative bg-white dark:bg-gray-800 rounded-xl overflow-hidden shadow-sm hover:shadow-xl transition-all duration-300 border border-transparent dark:border-gray-700 hover:border-blue-200 dark:hover:border-blue-900/50 flex flex-col">
                                   <div className="aspect-[4/3] bg-gray-100 dark:bg-gray-900 relative overflow-hidden">
-                                     <img 
-                                         src={`local-img://${photo.full_file_path}`} 
-                                         alt={photo.file_name} 
-                                         className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                                         loading="lazy" 
-                                     />
+                                     <ThumbnailImage photo={photo} />
                                   </div>
                                   <div className="p-4 flex flex-col border-t border-gray-100 dark:border-gray-700/50">
                                       <p className="text-sm font-semibold truncate text-gray-800 dark:text-gray-200" title={photo.file_name}>
