@@ -11,14 +11,17 @@ function ThumbnailImage({ photo }) {
         let isMounted = true;
         
         const fetchThumb = async () => {
-            const cachedPath = await window.electronAPI.getThumbnail(photo.image_id, photo.uuid);
+            const result = await window.electronAPI.getThumbnail(photo.image_id);
             
             if (isMounted) {
-                if (cachedPath) {
-                    setImgSrc(`local-img://${cachedPath}`);
+                if (result?.ok && result.cachedPath) {
+                    setImgSrc(`local-img://${result.cachedPath}`);
                 } else {
-                    if (photo.file_name.toLowerCase().match(/\.(jpg|jpeg|png)$/)) {
+                    const ext = photo.file_name.toLowerCase();
+                    if (ext.endsWith('.jpg') || ext.endsWith('.jpeg') || ext.endsWith('.png') || ext.endsWith('.webp')) {
                         setImgSrc(`local-img://${photo.full_file_path}`);
+                    } else {
+                        if (result?.reason) console.log(`[Thumbnail] ${photo.file_name} failed:`, result.reason);
                     }
                 }
                 setLoading(false);

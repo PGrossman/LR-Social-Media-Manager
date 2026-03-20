@@ -4,6 +4,7 @@ import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import Store from 'electron-store';
+import { resolveLightroomThumbnail } from './lib/lightroomPreviewResolver.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -93,71 +94,34 @@ ipcMain.handle('select-lrcat-file', async () => {
   }
 });
 
-ipcMain.handle('get-thumbnail', async (event, imageId, _ignoredUuid) => {
-    const dbPath = store.get('lrDbPath');
-    if (!dbPath) return null;
-
-    const thumbnailsDir = path.join(app.getPath('userData'), 'lr-thumbnails');
-    if (!fs.existsSync(thumbnailsDir)) fs.mkdirSync(thumbnailsDir, { recursive: true });
-
-    const cachedPath = path.join(thumbnailsDir, `${imageId}.jpg`);
-    if (fs.existsSync(cachedPath)) return cachedPath;
-
-    const catalogDir = path.dirname(dbPath);
-    const catalogName = path.basename(dbPath, '.lrcat');
-    const previewsDbPath = path.join(catalogDir, `${catalogName} Previews.lrdata`, 'previews.db');
-
-    if (!fs.existsSync(previewsDbPath)) return null;
-
-    let actualPreviewUuid = null;
+ipcMain.handle('get-thumbnail', async (event, imageId) => {
     try {
-        // We MUST query previews.db. The main catalog's id_global does NOT match the preview UUID.
-        const previewDb = new Database(previewsDbPath, { readonly: true });
-        const row = previewDb.prepare('SELECT uuid FROM ImageCacheEntry WHERE imageId = ?').get(imageId);
-        previewDb.close();
-        
-        if (row && row.uuid) {
-            actualPreviewUuid = row.uuid;
-        }
-    } catch (error) {
-        console.error('Preview DB Read Error for imageId', imageId, ':', error);
-        return null;
+        const settings = store.store;
+        const catalogPath = settings.lrDbPath;
+        if (!catalogPath) return { ok: false, cachedPath: null, sourceType: 'none', reason: 'No catalog configured' };
+
+        const catalogDir = path.dirname(catalogPath);
+        const catalogName = path.basename(catalogPath, '.lrcat');
+        const previewsRootPath = path.join(catalogDir, `${catalogName} Previews.lrdata`);
+        const thumbnailsDir = path.join(app.getPath('userData'), 'lr-thumbnails');
+        if (!fs.existsSync(thumbnailsDir)) fs.mkdirSync(thumbnailsDir, { recursive: true });
+
+        const result = await resolveLightroomThumbnail({
+            imageId,
+            catalogPath,
+            previewsRootPath,
+            thumbnailsDir
+        });
+        return result;
+    } catch (err) {
+        console.error('[LR-PREVIEW] fatal get-thumbnail error', err);
+        return {
+            ok: false,
+            cachedPath: null,
+            sourceType: 'none',
+            reason: err?.message || 'unknown get-thumbnail error'
+        };
     }
-
-    if (!actualPreviewUuid) return null;
-
-    const level1 = actualPreviewUuid.charAt(0).toUpperCase();
-    const level2 = actualPreviewUuid.substring(0, 4).toUpperCase();
-    const previewBaseDir = path.join(catalogDir, `${catalogName} Previews.lrdata`, level1, level2);
-    
-    const possibleFilenames = [
-        `${actualPreviewUuid}.lrprev`,
-        `${actualPreviewUuid}-preview.lrprev`,
-        `${actualPreviewUuid}.jpg`,
-        `${actualPreviewUuid}-preview.jpg`
-    ];
-
-    for (const filename of possibleFilenames) {
-        const lrPreviewPath = path.join(previewBaseDir, filename);
-        if (fs.existsSync(lrPreviewPath)) {
-            try {
-                const fileData = fs.readFileSync(lrPreviewPath);
-                // Strip the proprietary Adobe header to extract the pure JPEG
-                const jpegStart = fileData.indexOf(Buffer.from([0xFF, 0xD8, 0xFF]));
-                
-                if (jpegStart !== -1) {
-                    fs.writeFileSync(cachedPath, fileData.slice(jpegStart));
-                    return cachedPath;
-                } else if (filename.toLowerCase().endsWith('.jpg')) {
-                    fs.copyFileSync(lrPreviewPath, cachedPath);
-                    return cachedPath;
-                }
-            } catch (err) {
-                console.error('File read error:', err);
-            }
-        }
-    }
-    return null;
 });
 
 ipcMain.handle('get-folders', async (event, excludedFolderPaths = []) => {
