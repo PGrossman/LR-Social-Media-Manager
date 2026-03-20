@@ -2,7 +2,9 @@ import React, { useState } from 'react';
 import { ChevronRight, ChevronDown, Folder, FolderOpen, MoreVertical, EyeOff } from 'lucide-react';
 
 function FolderNode({ node, depth, onSelectFolder, selectedFolderPath, onHideFolder }) {
-    const [isOpen, setIsOpen] = useState(false);
+    // Auto-expand if the selected folder is at or below this node
+    const shouldBeOpen = selectedFolderPath && node.pathFromRoot && selectedFolderPath.startsWith(node.pathFromRoot);
+    const [isOpen, setIsOpen] = useState(shouldBeOpen || false);
     const [menuOpen, setMenuOpen] = useState(false);
     
     const hasChildren = node.children && node.children.length > 0;

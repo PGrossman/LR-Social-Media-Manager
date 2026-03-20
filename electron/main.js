@@ -177,18 +177,40 @@ ipcMain.handle('get-photo-metadata', async (event, imageId) => {
 
         const getXmpTag = (tag) => {
             // Match attribute style: tag="value"
-            const attrMatch = xmp.match(new RegExp(`${tag}="([^"]+)"`));
-            if (attrMatch) return attrMatch[1];
+            const attrKey = tag + '="';
+            const attrIdx = xmp.indexOf(attrKey);
+            if (attrIdx !== -1) {
+                const valStart = attrIdx + attrKey.length;
+                const valEnd = xmp.indexOf('"', valStart);
+                if (valEnd !== -1) return xmp.substring(valStart, valEnd);
+            }
             // Match element style: <tag>value</tag>
-            const elemMatch = xmp.match(new RegExp(`<${tag}>([^<]+)</${tag}>`));
-            if (elemMatch) return elemMatch[1];
+            const openTag = '<' + tag + '>';
+            const closeTag = '</' + tag + '>';
+            const elemIdx = xmp.indexOf(openTag);
+            if (elemIdx !== -1) {
+                const valStart = elemIdx + openTag.length;
+                const valEnd = xmp.indexOf(closeTag, valStart);
+                if (valEnd !== -1) return xmp.substring(valStart, valEnd);
+            }
             return '';
         };
 
         const getXmpLangTag = (tag) => {
-            // Match: <tag><rdf:Alt><rdf:li xml:lang="...">value</rdf:li></rdf:Alt></tag>
-            const match = xmp.match(new RegExp(`<${tag}>[\\s\\S]*?<rdf:li[^>]*>([^<]+)</rdf:li>`));
-            return match ? match[1] : '';
+            // Find the tag, then extract the first rdf:li value inside it
+            const openTag = '<' + tag + '>';
+            const closeTag = '</' + tag + '>';
+            const tagStart = xmp.indexOf(openTag);
+            if (tagStart === -1) return '';
+            const tagEnd = xmp.indexOf(closeTag, tagStart);
+            if (tagEnd === -1) return '';
+            const block = xmp.substring(tagStart, tagEnd);
+            const liStart = block.indexOf('<rdf:li');
+            if (liStart === -1) return '';
+            const valStart = block.indexOf('>', liStart) + 1;
+            const valEnd = block.indexOf('</rdf:li>', valStart);
+            if (valEnd === -1) return '';
+            return block.substring(valStart, valEnd).trim();
         };
 
         // 1. Get Caption/Description from AgLibraryIPTC (fallback)
