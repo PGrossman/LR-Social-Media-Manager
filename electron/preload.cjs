@@ -7,5 +7,5 @@ contextBridge.exposeInMainWorld('electronAPI', {
     setFolderVisibility: (folderPath, visible) => ipcRenderer.invoke('set-folder-visibility', folderPath, visible),
     getFolderTree: (excludedFolderPaths) => ipcRenderer.invoke('get-folders', excludedFolderPaths),
     selectLrcatFile: () => ipcRenderer.invoke('select-lrcat-file'),
-    getThumbnail: (imageId) => ipcRenderer.invoke('get-thumbnail', imageId)
+    getThumbnail: (imageId, uuid) => ipcRenderer.invoke('get-thumbnail', imageId, uuid)
 });

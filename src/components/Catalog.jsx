@@ -11,7 +11,7 @@ function ThumbnailImage({ photo }) {
         let isMounted = true;
         
         const fetchThumb = async () => {
-            const cachedPath = await window.electronAPI.getThumbnail(photo.image_id);
+            const cachedPath = await window.electronAPI.getThumbnail(photo.image_id, photo.uuid);
             
             if (isMounted) {
                 if (cachedPath) {

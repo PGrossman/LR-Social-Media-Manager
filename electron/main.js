@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, protocol, dialog } from 'electron';
+import { app, BrowserWindow, ipcMain, protocol, dialog, net } from 'electron';
 import Database from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
@@ -39,15 +39,9 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
-  // Register a custom protocol to safely load local files for images
-  protocol.registerFileProtocol('local-img', (request, callback) => {
+  protocol.handle('local-img', (request) => {
     const url = request.url.replace('local-img://', '');
-    try {
-      return callback({ path: decodeURIComponent(url) });
-    } catch (error) {
-       console.error(error);
-       return callback({ statusCode: 404 });
-    }
+    return net.fetch('file://' + decodeURIComponent(url));
   });
 
   createWindow();
@@ -96,79 +90,50 @@ ipcMain.handle('select-lrcat-file', async () => {
   }
 });
 
-ipcMain.handle('get-thumbnail', async (event, imageId) => {
+ipcMain.handle('get-thumbnail', async (event, imageId, uuid) => {
     const dbPath = store.get('lrDbPath');
-    if (!dbPath) return null;
+    if (!dbPath || !uuid) return null;
 
-    // Ensure our local cache directory exists
     const thumbnailsDir = path.join(app.getPath('userData'), 'lr-thumbnails');
-    if (!fs.existsSync(thumbnailsDir)) {
-        fs.mkdirSync(thumbnailsDir, { recursive: true });
-    }
+    if (!fs.existsSync(thumbnailsDir)) fs.mkdirSync(thumbnailsDir, { recursive: true });
 
     const cachedPath = path.join(thumbnailsDir, `${imageId}.jpg`);
-    
-    // 1. If we already cached it, return it instantly
-    if (fs.existsSync(cachedPath)) {
-        return cachedPath;
-    }
+    if (fs.existsSync(cachedPath)) return cachedPath;
 
-    // 2. Locate Lightroom's previews.db
     const catalogDir = path.dirname(dbPath);
     const catalogName = path.basename(dbPath, '.lrcat');
-    const previewsDbPath = path.join(catalogDir, `${catalogName} Previews.lrdata`, 'previews.db');
+    
+    const level1 = uuid.charAt(0).toUpperCase();
+    const level2 = uuid.substring(0, 4).toUpperCase();
+    const previewBaseDir = path.join(catalogDir, `${catalogName} Previews.lrdata`, level1, level2);
+    
+    const possibleFilenames = [
+        `${uuid}.lrprev`,
+        `${uuid}-preview.lrprev`,
+        `${uuid}.jpg`,
+        `${uuid}-preview.jpg`
+    ];
 
-    if (!fs.existsSync(previewsDbPath)) return null;
-
-    try {
-        // 3. Query previews.db for the image's UUID
-        const previewDb = new Database(previewsDbPath, { readonly: true });
-        const row = previewDb.prepare('SELECT uuid FROM ImageCacheEntry WHERE imageId = ?').get(imageId);
-        previewDb.close();
-
-        if (!row || !row.uuid) return null;
-
-        // 4. Construct Lightroom's nested preview path structure
-        const uuid = row.uuid;
-        const level1 = uuid.charAt(0);
-        const level2 = uuid.substring(0, 4);
-        const previewBaseDir = path.join(catalogDir, `${catalogName} Previews.lrdata`, level1, level2);
-        
-        // 5. Hunt for the file using all of Lightroom's known naming conventions
-        const possibleFilenames = [
-            `${uuid}.lrprev`,
-            `${uuid}-preview.lrprev`,
-            `${uuid}.jpg`,
-            `${uuid}-preview.jpg`
-        ];
-
-        for (const filename of possibleFilenames) {
-            const lrPreviewPath = path.join(previewBaseDir, filename);
-            if (fs.existsSync(lrPreviewPath)) {
-                
-                // Read the proprietary Adobe preview file into memory
+    for (const filename of possibleFilenames) {
+        const lrPreviewPath = path.join(previewBaseDir, filename);
+        if (fs.existsSync(lrPreviewPath)) {
+            try {
                 const fileData = fs.readFileSync(lrPreviewPath);
-                
-                // Find the exact byte sequence where the real JPEG starts (FF D8 FF)
                 const jpegStart = fileData.indexOf(Buffer.from([0xFF, 0xD8, 0xFF]));
                 
                 if (jpegStart !== -1) {
-                    // Slice off Adobe's header and save only the pure JPEG data
                     fs.writeFileSync(cachedPath, fileData.slice(jpegStart));
                     return cachedPath;
-                } else if (filename.endsWith('.jpg')) {
-                    // Fallback: If it's already a standard jpg and has no Adobe header
+                } else if (filename.toLowerCase().endsWith('.jpg')) {
                     fs.copyFileSync(lrPreviewPath, cachedPath);
                     return cachedPath;
                 }
+            } catch (err) {
+                console.error('File read error:', err);
             }
         }
-
-        return null;
-    } catch (error) {
-        console.error('Preview DB Error:', error);
-        return null;
     }
+    return null;
 });
 
 ipcMain.handle('get-folders', async (event, excludedFolderPaths = []) => {
@@ -236,6 +201,7 @@ ipcMain.handle('get-catalog', async (event, excludedFolderPaths = [], selectedFo
         const query = `
             SELECT 
                 img.id_local AS image_id,
+                img.id_global AS uuid,
                 root.absolutePath AS root_path,
                 folder.pathFromRoot AS folder_path,
                 file.baseName || '.' || file.extension AS file_name,
