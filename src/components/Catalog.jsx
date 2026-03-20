@@ -303,13 +303,6 @@ export default function Catalog() {
                          </p>
                        </div>
                    </div>
-                   <button 
-                       onClick={loadData} 
-                       className="flex items-center space-x-2 px-3 py-1.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-sm font-medium text-gray-600 dark:text-gray-300 rounded-lg shadow-sm hover:shadow dark:hover:bg-gray-700 transition-all active:scale-95 group"
-                   >
-                       <RefreshCw size={14} className={`group-hover:rotate-180 transition-transform duration-500 ${loading ? 'animate-spin' : ''}`} />
-                       <span>Reload</span>
-                   </button>
                    {photos.length > 0 && thumbsLoaded < photos.length && (
                      <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-gray-200 dark:bg-gray-700">
                        <div 
